@@ -8,7 +8,7 @@ import sys
 
 def parser():
     p = argparse.ArgumentParser(prog="pxrd-sg", description="PXRD and molecular-crystal screening")
-    p.add_argument("--version", action="version", version="pxrd-sg 0.2.0.dev1")
+    p.add_argument("--version", action="version", version="pxrd-sg 0.3.0.dev1")
     sub = p.add_subparsers(dest="command", required=True)
     doctor = sub.add_parser("doctor", help="Check imports and optional model/GPU assets")
     doctor.add_argument("--full", action="store_true")
@@ -22,8 +22,8 @@ def parser():
     doctor.add_argument("--device", default="cpu")
     for name in ("predict", "run", "rank"):
         c = sub.add_parser(name, help={"predict":"Raw PXRD + SMILES to space-group probabilities",
-            "run":"Prediction through candidate CIF ranking (explicit search budget)",
-            "rank":"Raw PXRD + relaxed candidate manifest to ranked CIFs"}[name])
+            "run":"Prediction, then sequential space-group CSP with PXRD peak-match stopping (explicit budget)",
+            "rank":"Raw PXRD + relaxed candidate manifest to sequential peak-match decisions"}[name])
         c.add_argument("--pxrd", type=Path, required=True, help="Two columns: degrees 2theta, linear intensity")
         c.add_argument("--wavelength", type=float, required=True, help="Measured wavelength in angstrom; paper workflow requires 1.54184")
         c.add_argument("--output", type=Path, required=True)
@@ -31,6 +31,8 @@ def parser():
         c.add_argument("--timeout", type=float, default=86400, help="Seconds per external stage")
         if name == "rank":
             c.add_argument("--manifest", type=Path, required=True, help="Relaxed candidate CSV in project schema, energies kJ/mol per molecule")
+            c.add_argument("--space-groups", type=int, nargs="+", required=True, help="Search order; stops at the first matching group")
+            c.add_argument("--workers", type=int, default=1)
         else:
             c.add_argument("--smiles", required=True)
             c.add_argument("--sample-id", default="sample")
@@ -40,7 +42,7 @@ def parser():
             c.add_argument("--device", default="cpu")
             c.add_argument("--top-k", type=int, default=3)
         if name == "run":
-            c.add_argument("--space-groups", type=int, nargs="+", help="Override prediction shortlist with explicit search groups")
+            c.add_argument("--space-groups", type=int, nargs="+", help="Override the predicted search order with explicit space groups")
             c.add_argument("--count", type=int, required=True, help="Candidates per group; 5000 is the paper budget, small values are execution checks")
             c.add_argument("--workers", type=int, default=1)
             c.add_argument("--gpu", type=int, required=True)

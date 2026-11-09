@@ -57,8 +57,9 @@ pxrd-sg predict --pxrd observed.xy --smiles 'CCO' --sample-id sample-1 \
 ```
 
 `run.json` points to the predictions CSV and records inputs, model hashes, class
-mapping, installed package versions, commands and output checksums. Raw DTW input
-and background-corrected classification input are kept separate.
+mapping, installed package versions, commands and output checksums. The raw
+pattern used for peak matching and the background-corrected classification input
+are kept separate.
 
 ## Full candidate workflow
 
@@ -71,13 +72,18 @@ pxrd-sg run --pxrd observed.xy --smiles 'CCO' --sample-id sample-1 \
 ```
 
 The explicit `run`, `--count` and `--gpu` options authorize the requested search.
-The default shortlist is the top three predicted labels. If it includes Others,
-the command stops after prediction; it does not replace Others with an arbitrary
-space group. Review predictions and run with explicit `--space-groups` in a new
-output directory if needed. `--space-groups 1` is useful for the synthetic ethanol
-execution example; it is an override, not a claim about experimental symmetry.
-The paper budget is 5,000 candidates per group, potentially requiring substantial
-GPU time. A count of one is only a software execution check.
+The default search list is the top three predicted labels, searched in predicted
+order. If it includes Others, the command stops after prediction; it does not
+replace Others with an arbitrary space group. Review predictions and run with
+explicit `--space-groups` (the search order) in a new output directory if needed.
+`--space-groups 1` is useful for the synthetic ethanol execution example; it is an
+override, not a claim about experimental symmetry. The paper budget is 5,000
+candidates per group, potentially requiring substantial GPU time. A count of one
+is only a software execution check.
+
+Each group runs four stages: `sgNNN-generation`, `sgNNN-relaxation`,
+`sgNNN-processing` and `sgNNN-matching`. The search stops at the first group whose
+decision is `STOP_SUCCESS`; later groups are not generated.
 
 The engine Python may be in a separate environment. The prediction environment
 must contain the `workflow` dependencies; the engine environment needs the pinned
@@ -85,23 +91,30 @@ BOMLIP/MACE stack. `doctor --full` accepts the same asset and engine options and
 checks their presence, imports, model hash, upstream revision and selected GPU.
 It does not prove the external optimizer will converge.
 
-Final outputs include a ranking CSV, selected-candidate manifest and up to ten
-ranked CIFs. Energies are kJ/mol per molecule. Reported generated space groups are
-pool labels, not independently redetermined final symmetries. DTW ranking does not
-establish structural identity. The result manifest preserves step-limit flags.
+Processing keeps representatives within 3.0 kJ/mol of the group minimum
+(`representatives.csv`, `deduplication.csv`, `provenance.json`). Matching writes
+`scores.csv` (all representatives ranked by B), `decision.json` and, on success,
+`selected_refined.cif` with the refined cell. Only the top-B candidate decides;
+there is no fallback to lower-ranked candidates. `run.json` records `searched`
+(per-group signal and top B) and `result`: `STOP_SUCCESS` or
+`NO_MATCH_IN_SEARCH_LIST`. Energies are kJ/mol per molecule. Generated space
+groups are pool labels, not independently redetermined final symmetries. A peak
+match supports, but does not establish, structural identity.
 
-## Rank existing candidates
+## Match existing candidates
 
 ```bash
 pxrd-sg rank --pxrd observed.xy --wavelength 1.54184 \
-  --manifest relaxed.csv --output runs/ranked
+  --manifest relaxed.csv --space-groups 14 2 --workers 4 --output runs/ranked
 ```
 
 The manifest uses the existing candidate schema: sample ID, concrete space group,
 unique candidate ID, CIF path/hash, per-molecule energy, unit and relaxation status.
-It must describe one molecule and comparable completed two-stage outputs. The
-command deduplicates within groups, simulates PXRD, retains up to 200 by energy
-and up to ten by DTW. No classifier or ChemBERTa checkpoint is required.
+It must describe one molecule and comparable completed two-stage outputs.
+`--space-groups` is required: unique groups, each present in the manifest, in
+search order. Each group runs `sgNNN-pool`, `sgNNN-processing` and
+`sgNNN-matching` with the same stopping rule as `run`. Results do not depend on
+`--workers`. No classifier or ChemBERTa checkpoint is required.
 
 ## Synthetic execution example
 

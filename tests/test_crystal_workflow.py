@@ -10,8 +10,7 @@ from unittest.mock import patch
 import unittest
 import numpy as np
 from src.runtime.crystal_candidates import candidate_row, read_candidates, write_candidates
-from src.runtime.crystal_processing import deduplicate, simulate
-from src.runtime.pxrd_dtw import screen_candidates
+from src.runtime.crystal_processing import low_energy_pool
 
 
 class ManifestTests(unittest.TestCase):
@@ -130,27 +129,25 @@ class ExecutionTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("pymatgen"), "requires structural dependencies")
 class StructureTests(unittest.TestCase):
-    def test_dedup_is_within_group_and_retains_lowest_energy(self):
+    def test_pool_window_dedup_and_density_prefilter(self):
         from pymatgen.core import Structure, Lattice
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            structure = Structure(Lattice.cubic(5.6), ["Na", "Cl"], [[0, 0, 0], [.5, .5, .5]])
             rows = []
-            for name, group, energy in [("high", 1, -1), ("low", 1, -2), ("other_group", 2, -3)]:
+            for name, edge, energy in [("high", 5.6, -1.0), ("low", 5.6, -2.0), ("dense", 5.0, -1.5),
+                                       ("edge", 5.6, 1.0), ("outside", 5.6, 1.01)]:
                 cif = root / f"{name}.cif"
-                structure.to(filename=str(cif))
-                rows.append(candidate_row("synthetic", group, cif, energy=energy, status="completed"))
-            reps, mapping = deduplicate(rows)
-            self.assertEqual({r["candidate_id"] for r in reps}, {"sg1:low", "sg2:other_group"})
-            self.assertEqual(next(r for r in mapping if r["candidate_id"] == "sg1:high")["representative_candidate_id"], "sg1:low")
-            profile = simulate(Path(reps[0]["cif_path"]))
-            self.assertEqual(profile.shape, (3400,))
-            self.assertAlmostEqual(float(profile.max()), 100)
-            self.assertTrue(np.isfinite(profile).all())
-            ranked = screen_candidates(profile, np.stack([profile, profile]), np.array([-2., -3.]),
-                np.array(["sg1:low", "sg2:other_group"]))
-            self.assertEqual(len(ranked), 2)
-            self.assertEqual(ranked[0]["candidate_id"], "sg2:other_group")
+                Structure(Lattice.cubic(edge), ["Na", "Cl"], [[0, 0, 0], [.5, .5, .5]]).to(filename=str(cif))
+                rows.append(candidate_row("synthetic", 1, cif, energy=energy, status="completed"))
+            reps, mapping = low_energy_pool(rows)
+            # 3.01 kJ/mol above the minimum is outside the window; 3.00 is inside.
+            self.assertEqual([m["candidate_id"] for m in mapping], ["sg1:low", "sg1:dense", "sg1:high", "sg1:edge"])
+            # StructureMatcher scales volumes, so only the density prefilter keeps "dense" separate.
+            self.assertEqual([r["candidate_id"] for r in reps], ["sg1:low", "sg1:dense"])
+            self.assertEqual(reps[0]["relative_energy"], 0.0)
+            self.assertEqual({m["representative_candidate_id"] for m in mapping[2:]}, {"sg1:low"})
+            with self.assertRaisesRegex(ValueError, "one space group"):
+                low_energy_pool(rows + [dict(rows[0], space_group="2", candidate_id="x")])
 
 
 @unittest.skipUnless(importlib.util.find_spec("rdkit"), "requires RDKit")

@@ -14,44 +14,16 @@ import torch
 
 from src.data.pxrd import CLASSIFICATION_GRID, preprocess_experimental, augment_csd_profile
 from src.data.arrays import ArrayBundle, ArrayDataset
-from src.runtime.pxrd_dtw import prepare_profile_pair, constrained_dtw_distance, screen_candidates
 from src.models.xraypro import ModelConfig, XRayProModel
 from src.runtime.io import display_space_group
 from src.evaluation.metrics import classification_details, topk_summary, paired_seed_summary
-from tools import train, score_pxrd_candidates
+from tools import train
 from examples.make_synthetic_data import make_bundle
 from src.runtime.checkpoints import save_checkpoint, load_checkpoint
 from tools import infer
 
 
 class PaperProtocolTest(unittest.TestCase):
-    def test_linear_intensity_and_euclidean_cost(self):
-        observed = np.array([0., 1., 4., 0.])
-        candidate = np.array([0., 4., 1., 0.])
-        ref, pred = prepare_profile_pair(observed, candidate, pooling_factor=1)
-        np.testing.assert_allclose(ref, observed / np.linalg.norm(observed))
-        np.testing.assert_allclose(pred, candidate / np.linalg.norm(candidate))
-        self.assertAlmostEqual(constrained_dtw_distance(ref, pred, 0),
-                               np.abs(ref - pred).sum() / np.sqrt(4))
-
-    def test_window_boundary_is_inclusive_and_ends_are_fixed(self):
-        # A shifted impulse can match at radius 30, but not radius 29.
-        a, b = np.zeros(100), np.zeros(100)
-        a[35], b[65] = 1, 1
-        self.assertEqual(constrained_dtw_distance(a, b, 30), 0)
-        self.assertGreater(constrained_dtw_distance(a, b, 29), 0)
-        self.assertGreater(constrained_dtw_distance(np.array([1., 0.]), np.zeros(2), 30), 0)
-
-    def test_negative_intensities_clipped_before_reference_baseline(self):
-        a, b = prepare_profile_pair(np.array([-2., 0., 4., 1.]),
-                                    np.array([0., 0., 4., 1.]), 1)
-        np.testing.assert_array_equal(a, b)
-
-    def test_incomplete_pool_bin_is_discarded(self):
-        profile = np.array([0., 1., 2., 3., 4., 5., 99.])
-        a, _ = prepare_profile_pair(profile, profile, 3)
-        np.testing.assert_allclose(a, np.array([2., 5.]) / np.sqrt(29))
-
     def test_interpolation_zero_fill_and_percentile_baseline(self):
         theta = CLASSIFICATION_GRID[100:900]
         y = np.ones(800) * 20
@@ -131,42 +103,6 @@ class PaperProtocolTest(unittest.TestCase):
         self.assertAlmostEqual(result["treatment_sample_std"], np.std(list(treated.values()), ddof=1))
         with self.assertRaises(ValueError):
             paired_seed_summary(base, {s + 1: v for s, v in treated.items()})
-
-    def test_energy_filter_before_dtw_and_deterministic_ties(self):
-        reference = np.arange(10.)
-        profiles = np.tile(reference, (205, 1))
-        energies = np.zeros(205)
-        ids = np.array([f"candidate-{i:03}" for i in range(204, -1, -1)])
-        rows = screen_candidates(reference, profiles, energies, ids, pooling_factor=1)
-        self.assertEqual(len(rows), 200)
-        self.assertEqual(sum(row["selected"] for row in rows), 10)
-        self.assertEqual(rows[0]["candidate_id"], "candidate-000")
-        self.assertEqual(rows[-1]["candidate_id"], "candidate-199")
-        energies[0] = -1
-        profiles[0] = reference[::-1]
-        rows = screen_candidates(reference, profiles, energies, ids, energy_limit=1,
-                                 top_count=1, pooling_factor=1)
-        self.assertEqual(rows[0]["candidate_index"], 0)
-        self.assertGreater(rows[0]["dtw_distance"], 0)
-
-    def test_screening_cli_writes_ten_selected_rows(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            reference = np.arange(25.)
-            for name, data in {"reference": reference, "candidates": np.tile(reference, (203, 1)),
-                               "energies": np.arange(203.),
-                               "ids": np.array([f"c{i:03}" for i in range(203)])}.items():
-                np.save(root / (name + ".npy"), data)
-            args = argparse.Namespace(reference=root / "reference.npy", candidates=root / "candidates.npy",
-                    energies=root / "energies.npy", candidate_ids=root / "ids.npy", output=root / "scores.csv",
-                    energy_limit=200, top_count=10, start_index=0, stop_index=None,
-                    pooling_factor=5, band_points=30)
-            score_pxrd_candidates.run(args)
-            with args.output.open() as handle:
-                rows = list(csv.DictReader(handle))
-            self.assertEqual(len(rows), 200)
-            self.assertEqual(sum(r["selected"] == "True" for r in rows), 10)
-            self.assertEqual(rows[0]["candidate_id"], "c000")
 
     def test_others_roundtrip_and_inference_preserve_logit_ranking(self):
         with tempfile.TemporaryDirectory() as directory:

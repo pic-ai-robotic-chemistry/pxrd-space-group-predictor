@@ -30,7 +30,7 @@ results between machines. Linux x86-64 validation does not establish support for
 Apple Silicon or native Windows.
 
 The Conda CPU profile was tested on Linux x86-64 with a fresh Python 3.10
-environment: dependency checks, all 58 tests and real-checkpoint prediction
+environment: dependency checks, all 57 tests and real-checkpoint prediction
 passed. The installed environment occupied approximately 1.7 GB, excluding
 models and the Conda package cache. Run source tests from the repository root
 because some tests read files under `examples/`:
@@ -76,10 +76,10 @@ libraries; it does not install the system driver or CUDA compiler. The verified
 host used PyTorch 2.4.1+cu121 with CUDA toolkit 12.6 and an NVIDIA A800.
 
 Fresh Conda environments passed an end-to-end execution check on 22 October
-2026: all eight CLI stages completed for synthetic PXRD, ethanol, space group 1
-and one candidate. Resume reused all eight stages without new attempts;
-independent ranking produced a byte-identical ranking table. All 613 recorded
-output hashes matched, and one ranked CIF was exported. This checks installation
+2026 with version 0.2 (synthetic PXRD, ethanol, space group 1, one candidate):
+all stages, resume and output-hash checks passed. That version ranked candidates
+by profile similarity, which 0.3 replaced with peak matching; the 0.3 matching
+stages were run on recorded CSP pools instead. This checks installation
 and execution, not recovery of an experimental structure or reproduction of the
 paper's results. The CPU environment used about 1.7 GB and the GPU engine about
 6.3 GB, excluding models, package caches and workflow outputs. Existing research

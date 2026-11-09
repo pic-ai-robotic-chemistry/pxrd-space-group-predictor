@@ -13,12 +13,12 @@ are in [the CLI guide](cli.md).
 | SI-5 training and controls | `tools/train.py --stage` | Stage-specific defaults, explicit checkpoint initialization, optimizer reset, no test loader. |
 | SI-6 ordinary/balanced recall and macro-F1 | `src/evaluation/metrics.py`, `tools/evaluate.py` | Stable descending logits; summaries plus per-class, confusion and rank-coverage JSON. |
 | SI-6 five-seed paired criterion | `paired_seed_summary` | Same five seed IDs, unrounded recall fractions, sample standard deviation; mean gain >=0.02 and >=4 positive pairs. |
-| SI-8 DTW | `src/runtime/pxrd_dtw.py` | Linear intensities; Euclidean local cost; radius 30/window 31; normalize by sqrt(length). |
-| SI-8 energy-to-DTW selection | `screen_candidates`, `tools/score_pxrd_candidates.py` | Already deduplicated input; select 200 by energy/ID, then ten by DTW/energy/ID. |
+| SI-8 PXRD peak matching | `src/runtime/pxrd_peak_match.py`: `load_experimental_pxrd`, `corrected_pattern`, `peak_levels`, `refine_cell`, `strong_guard`, `score_components` | Native measured grid; SNIP on log(1+√I); three-restart cell refinement; bidirectional strong-peak guard; B = exp(−(1.00M + 0.30D + 0.30H)). |
+| SI-8 per-group stopping rule | `evaluate_pool`, `tools/score_pxrd_candidates.py`, `execute_stages` in `src/runtime/workflow.py` | Top-B candidate only; match iff guard passes and B ≥ 0.80; stop at first matching group in search order, else `NO_MATCH_IN_SEARCH_LIST`. |
 | SI-2 fixed split and molecular exclusion | External data preparation | No random split substitutes for the fixed 512/266/1655 paper protocol. |
 | SI-7 generation and MACE relaxation | Downstream CLI adapters | `tools/generate_crystal_candidates.py` and `tools/relax_crystal_candidates.py` call the pinned external engine; models are not bundled. |
-| SI-8 packing deduplication/validation and retrospective reference | `crystal_processing.py`, `validate_crystal_packing.py` | DTW agreement is not a packing match; ranking does not inspect reference labels. |
-| SI-9 VASP comparison | External DFT calculation | The three-structure result is evidence, not a classifier/DTW implementation. |
+| SI-8 low-energy window, deduplication and retrospective packing validation | `low_energy_pool` in `src/runtime/crystal_processing.py`, `tools/process_crystal_candidates.py`, `validate_crystal_packing.py` | ΔE ≤ 3.0 kJ/mol per group; density-gated StructureMatcher. A peak match is not a packing match; matching does not inspect reference labels. |
+| SI-9 VASP comparison | External DFT calculation | The three-structure result is evidence, not a classifier/peak-matching implementation. |
 
 ## Architecture and class mapping
 
@@ -85,30 +85,30 @@ establish molecule-disjoint membership from metric values.
 
 ## Candidate scoring and external stages
 
-Candidate and experimental profiles must already share the grid 2.00–69.98°,
-step 0.02°, and measured angular support. Crop both with `--start-index` and
-`--stop-index` before subtracting the experimental minimum or normalizing. Simulation uses Cu Kα 1.54184 Å, pseudo-Voigt
-FWHM 0.15° and Lorentz fraction 0.5. This package simulates profiles with `tools/process_crystal_candidates.py` before scoring.
+The matcher reads the measured two-column pattern on its native regular grid
+(`load_experimental_pxrd`); it is not interpolated onto the classifier grid and
+does not use classifier background subtraction. Candidate sticks use Cu Kα
+1.54184 Å with pseudo-Voigt FWHM 0.15° and η 0.5. `corrected_pattern` applies
+Gaussian smoothing (σ 0.075°), SNIP (1.2°) on log(1+√I), a second smoothing
+(σ 0.03375°) and max-1 normalisation; `peak_levels` extracts major, medium and
+fine peaks. `refine_cell` varies log lengths ±0.10, angles ±4° and zero shift
+±0.40° by differential evolution (three restarts, maxiter 75, popsize 10; seed
+from the CIF stem without `_opt` and the restart index), keeping the largest
+objective. `strong_guard` requires major peaks ≥0.70 in each pattern to have a
+counterpart ≥0.05 within 1.00 + 0.007·max(mean 2θ − 10, 0) degrees.
+`score_components` gives M, D and H for B. Results do not depend on worker count.
+The engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
 
-After cropping, the minimum experimental intensity within the measured range
-is subtracted from the experimental profile only. This is separate from the
-classifier's rolling-percentile background subtraction. Both profiles use linear max100
-intensities, five-point max pooling and L2 normalization. The incomplete final
-bin is discarded. Scalar Euclidean cost is absolute difference; the result is
-the **sum of costs along the optimal path divided by sqrt(pooled length)**,
-not the square root of the sum of squared costs. Penalty and psi are zero.
-
-When energy metadata are supplied, `--energy-limit 200 --top-count 10` applies
-the paper sequence. The output has one row per retained candidate and a
-`selected` flag for the final ten. Fewer than 200 available inputs give a smaller
-set; no structures are fabricated or added. Identifiers are unique strings and
-sort lexicographically for ties. The full scorer without metadata is separate
-from this selection mode.
-
-Downstream adapters implement StructureMatcher compression and simulation and call pinned BOMLIP/MACE and licensed PackingSimilarity. VASP remains external. `docs/downstream-workflow.md` gives launch instructions; `configs/paper_protocol.json` records numerical settings. In particular, independent matches require all 15
-molecules in the packing shell, and retrospective reference selection uses
-only matches within the final ten. The historical nine-case SI figures concern
-full candidate pools and are not the current 200-candidate screening panels.
+Each space group is processed separately (`low_energy_pool`): energies relative
+to that group's minimum, ΔE ≤ 3.0 kJ/mol, then StructureMatcher deduplication
+in increasing energy against representatives within 0.2 g/cm³ density.
+`evaluate_pool` ranks representatives by B; only the top candidate decides, with
+no fallback. Downstream adapters call pinned BOMLIP/MACE and licensed
+PackingSimilarity. VASP remains external. `docs/downstream-workflow.md` gives
+launch instructions; `configs/paper_protocol.json` records numerical settings.
+Independent packing matches require all 15 molecules in the packing shell. A
+peak match supports, but does not establish, structural identity; packing
+validation is optional and post hoc.
 
 ## Input validation
 
@@ -122,6 +122,6 @@ These checks reject unusable inputs without changing valid-profile processing.
 
 Regression tests exercise numerical protocols, input contracts, checkpoint
 round trips, one-epoch synthetic training, fine-tuning and graph-free prediction.
-The optional reference test compares DTW against dtaidistance Python/C routines.
+Peak matching was verified separately on recorded CSP pools.
 These tests do not retrain the paper model, validate its scientific accuracy,
 recompute the CSP/DFT results or redistribute private data/checkpoints.

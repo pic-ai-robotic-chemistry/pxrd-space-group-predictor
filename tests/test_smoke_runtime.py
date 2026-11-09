@@ -6,7 +6,6 @@ import numpy as np
 import torch
 
 from src.models.xraypro import ModelConfig, XRayProModel
-from src.runtime.pxrd_dtw import score_candidates
 from src.training.losses import LossConfig, classification_loss
 
 
@@ -68,13 +67,6 @@ class RuntimeSmokeTest(unittest.TestCase):
         losses = classification_loss(output, torch.tensor([0, 1]), LossConfig())
         self.assertTrue(torch.isfinite(losses["loss"]))
 
-    def test_identical_profile_ranks_first(self) -> None:
-        reference = np.linspace(0, 1, 60)
-        scores = score_candidates(
-            reference, np.stack([reference[::-1], reference]), band_points=2
-        )
-        self.assertEqual(int(np.argmin(scores)), 1)
-        self.assertAlmostEqual(float(scores[1]), 0.0)
 
 
 if __name__ == "__main__":
