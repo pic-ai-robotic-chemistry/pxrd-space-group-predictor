@@ -21,7 +21,7 @@ Experimental PXRD + molecular SMILES
   Stop at first match, else next group
 ```
 
-Each space group is searched on its own. Candidates within 3.0 kJ/mol of the group's lowest energy are deduplicated, their cells are refined against the measured peaks, and each gets a peak-match score B. The search stops only if the highest-scoring candidate passes the strong-peak check and reaches B ≥ 0.80. A match supports further structure assessment but does not prove structural identity. The peak-matching engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
+Each space group is searched on its own. Candidates within 3.0 kJ/mol of the group's lowest energy are deduplicated, their cells are refined against the measured peaks, and each gets a peak-match score B. The search stops only if the highest-scoring candidate passes the strong-peak check and reaches B ≥ 0.80. A match supports further structure assessment but does not prove structural identity. The peak-matching engine is ported from Chengxi Zhao's `pxrd_csp_stop` 1.0.0.
 
 ## What you can run
 
@@ -68,7 +68,7 @@ The [weights-v1 release](https://github.com/qiaoqinyu/pxrd-space-group-predictor
 
 The repository does not distribute licensed CSD/PDF database records or restricted study datasets and historical calculation outputs. Users can supply their own inputs and export generated candidate CIFs. The public prediction and peak-matching workflow does not require a CSD license. Optional reference-based packing validation requires a separately licensed CCDC environment.
 
-Formal software and classifier license terms, citation metadata and archival deposition remain pending. Public visibility does not grant an open-source license. Upstream model and engine licenses apply separately.
+The source code is released under the [MIT License](LICENSE). Terms for the classifier weights are stated in the [model guide](docs/model-weights.md). Upstream models and engines (ChemBERTa, MACE, BOMLIP-CSP) keep their own licenses.
 
 ## Documentation and validation
 
@@ -79,4 +79,4 @@ Formal software and classifier license terms, citation metadata and archival dep
 - [Training, array formats and direct adapters](docs/advanced-usage.md)
 - [Paper-to-code correspondence](docs/paper-code-map.md)
 
-Validation includes the 57-test suite and a peak-matching run over ten recorded space-group pools of one system; on one of those pools, scores matched the original `pxrd_csp_stop` package exactly. Candidate generation and MACE relaxation were last run end to end with version 0.2. These checks establish software execution, not reproduction of the paper's full results. See the environment guide for the validation scope.
+Validation includes the 58-test suite and a one-candidate GPU run of `pxrd-sg run` from prediction through generation, MACE relaxation and peak matching, covering both the stop and the no-match outcomes. On the recorded CSP pools of the paper's 11 test systems, `pxrd-sg rank` in predicted order reproduces the reported per-system outcomes from the raw experimental patterns. It does not regenerate those pools: candidate generation and relaxation involve GPU nondeterminism. See the environment guide for the validation scope.

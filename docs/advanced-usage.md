@@ -116,7 +116,7 @@ counterpart ≥0.05 within r = 1.00 + 0.007·max(mean 2θ − 10, 0) degrees. Th
 is B = exp(−(1.00M + 0.30D + 0.30H)); a candidate matches iff the guard passes and
 B ≥ 0.80. Only the top-B candidate decides the pool, with no fallback. Outputs are
 `scores.csv`, `decision.json` and, on success, `selected_refined.cif`. Results do
-not depend on `--workers`. The engine is ported from Zikai Xie's `pxrd_csp_stop`
+not depend on `--workers`. The engine is ported from Chengxi Zhao's `pxrd_csp_stop`
 1.0.0. These transformations are separate from classifier preprocessing.
 
 Checkpoint loading uses PyTorch's restricted `weights_only=True` loader.

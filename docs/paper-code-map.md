@@ -98,7 +98,7 @@ from the CIF stem without `_opt` and the restart index), keeping the largest
 objective. `strong_guard` requires major peaks ≥0.70 in each pattern to have a
 counterpart ≥0.05 within 1.00 + 0.007·max(mean 2θ − 10, 0) degrees.
 `score_components` gives M, D and H for B. Results do not depend on worker count.
-The engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
+The engine is ported from Chengxi Zhao's `pxrd_csp_stop` 1.0.0.
 
 Each space group is processed separately (`low_energy_pool`): energies relative
 to that group's minimum, ΔE ≤ 3.0 kJ/mol, then StructureMatcher deduplication

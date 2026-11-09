@@ -2,7 +2,7 @@
 
 ## 0.3.0.dev1 — current development version
 
-- Replaced DTW candidate ranking with PXRD peak matching ported from Zikai Xie's
+- Replaced DTW candidate ranking with PXRD peak matching ported from Chengxi Zhao's
   `pxrd_csp_stop` 1.0.0: SNIP correction, lattice refinement, bidirectional
   strong-peak guard and score B ≥ 0.80.
 - `pxrd-sg run` and `pxrd-sg rank` now search space groups sequentially and stop
@@ -21,6 +21,7 @@
 - The experimental pattern is minimum-subtracted and scaled to 100 on the 0.02°
   grid before peak matching, as in the runs behind the reported results.
 - The refined CIF is written in explicit text mode, which recent monty requires.
+- The source code is released under the MIT License.
 
 ## 0.2.0.dev1
 

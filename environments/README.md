@@ -30,7 +30,7 @@ results between machines. Linux x86-64 validation does not establish support for
 Apple Silicon or native Windows.
 
 The Conda CPU profile was tested on Linux x86-64 with a fresh Python 3.10
-environment: dependency checks, all 57 tests and real-checkpoint prediction
+environment: dependency checks, all 58 tests and real-checkpoint prediction
 passed. The installed environment occupied approximately 1.7 GB, excluding
 models and the Conda package cache. Run source tests from the repository root
 because some tests read files under `examples/`:
