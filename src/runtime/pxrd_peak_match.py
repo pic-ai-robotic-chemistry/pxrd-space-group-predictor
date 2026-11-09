@@ -583,23 +583,25 @@ def score_components(
 
 
 def load_experimental_pxrd(path: str | Path) -> np.ndarray:
-    """Read two columns (degrees 2theta, intensity) onto a regular measured grid."""
+    """Read two columns (degrees 2theta, intensity) and normalize as in the reported runs.
+
+    Negative intensities are clipped, the pattern is linearly interpolated onto the
+    0.02 degree grid within its measured range, the minimum is subtracted and the
+    maximum scaled to 100. Background correction follows in ``corrected_pattern``.
+    """
 
     data = np.loadtxt(path, ndmin=2)
-    if data.shape[1] != 2 or len(data) < 5 or not np.isfinite(data).all():
-        raise ValueError("experimental PXRD must be finite two-column data with at least five rows")
-    x, inverse = np.unique(data[:, 0], return_inverse=True)
-    y = np.bincount(inverse, weights=data[:, 1]) / np.bincount(inverse)
-    keep = (x >= GRID_START) & (x <= GRID_STOP)
-    x, y = x[keep], y[keep]
+    if data.shape[1] != 2 or len(data) < 2 or not np.isfinite(data).all():
+        raise ValueError("experimental PXRD must be finite two-column data")
+    data = data[np.argsort(data[:, 0], kind="mergesort")]
+    x = GRID[(GRID >= data[0, 0]) & (GRID <= data[-1, 0])]
     if len(x) < 5:
-        raise ValueError(f"experimental PXRD does not overlap {GRID_START}-{GRID_STOP} degrees")
-    step = float(np.median(np.diff(x)))
-    if not 0 < step <= 0.25:
-        raise ValueError(f"unsupported experimental PXRD step: {step}")
-    # corrected_pattern assumes an approximately uniform angular grid.
-    regular = np.arange(x[0], x[-1] + 0.25 * step, step, dtype=float)
-    return np.column_stack((regular, np.interp(regular, x, y)))
+        raise ValueError(f"experimental PXRD must cover at least five grid points within {GRID_START}-{GRID_STOP} degrees")
+    y = np.interp(x, data[:, 0], np.clip(data[:, 1], 0.0, None))
+    y -= y.min()
+    if y.max() <= 0:
+        raise ValueError("experimental PXRD has no varying signal")
+    return np.column_stack((x, y * (100.0 / y.max())))
 
 
 def experimental_peaks(pattern: np.ndarray) -> tuple[dict, float, float]:

@@ -133,17 +133,24 @@ class CliTests(unittest.TestCase):
                 if Path(f"/proc/{pid}").exists():
                     os.kill(pid, 15)
 
-    def test_peak_match_input_keeps_measured_grid_and_signal(self):
+    def test_peak_match_input_is_min_subtracted_on_measured_grid(self):
         from src.data.pxrd import preprocess_experimental
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "observed.xy"
-            theta = np.arange(10, 50.001, .01)
+            theta = np.arange(10.005, 50.001, .01)
             intensity = 7 + 50 * np.exp(-((theta - 20) / .1) ** 2)
+            intensity[1:3] = -3  # brackets the 10.02 grid point; clipped to zero before the minimum
             np.savetxt(p, np.column_stack([theta, intensity]))
             prepared, measured = experimental_inputs(p)
             np.testing.assert_array_equal(prepared, preprocess_experimental(theta, intensity))
-            np.testing.assert_allclose(measured[:, 0], theta)
-            self.assertGreater(measured[:, 1].min(), 6.99)
+            # 0.02 degree grid restricted to the measured range, not the input spacing.
+            self.assertAlmostEqual(measured[0, 0], 10.02)
+            self.assertAlmostEqual(measured[-1, 0], 50.0)
+            np.testing.assert_allclose(np.diff(measured[:, 0]), 0.02, atol=1e-9)
+            expected = np.interp(measured[:, 0], theta, np.clip(intensity, 0, None))
+            np.testing.assert_allclose(measured[:, 1], (expected - expected.min()) / (expected.max() - expected.min()) * 100)
+            self.assertAlmostEqual(measured[:, 1].max(), 100)
+            self.assertGreater(measured[:, 1].min(), -1e-12)
 
     def test_zero_signal_and_wrong_model_hash_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

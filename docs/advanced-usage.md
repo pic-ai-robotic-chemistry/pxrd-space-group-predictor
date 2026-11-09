@@ -101,8 +101,9 @@ representatives whose density differs by at most 0.2 g/cm³; the lowest-energy
 member of each cluster is retained. It writes `representatives.csv`,
 `deduplication.csv` and `provenance.json`.
 
-`score_pxrd_candidates.py` scores one pool against a measured two-column pattern
-on its native regular grid. Candidate sticks are simulated with pymatgen for Cu Kα
+`score_pxrd_candidates.py` scores one pool against a measured two-column pattern.
+The pattern is clipped at zero, interpolated onto the 0.02° grid within its measured
+range, minimum-subtracted and scaled to a maximum of 100. Candidate sticks are simulated with pymatgen for Cu Kα
 (1.54184 Å) and broadened by pseudo-Voigt (FWHM 0.15°, η 0.5). Both patterns are
 Gaussian-smoothed (σ 0.075°), background-corrected by SNIP (1.2°) on a
 log(1+√I) scale, smoothed again (σ 0.03375°) and max-normalised; major, medium
