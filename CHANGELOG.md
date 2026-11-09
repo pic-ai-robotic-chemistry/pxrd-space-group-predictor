@@ -2,7 +2,7 @@
 
 ## 0.3.0.dev1 — current development version
 
-- Replaced DTW candidate ranking with PXRD peak matching ported from Zikai Xie's
+- Replaced DTW candidate ranking with PXRD peak matching ported from Chengxi Zhao's
   `pxrd_csp_stop` 1.0.0: SNIP correction, lattice refinement, bidirectional
   strong-peak guard and score B ≥ 0.80.
 - `pxrd-sg run` and `pxrd-sg rank` now search space groups sequentially and stop

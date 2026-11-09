@@ -131,7 +131,7 @@ Only the top-B candidate decides the group: `decision.json` records
 lower-ranked candidates are never used as a fallback. `scores.csv` lists all
 representatives; `selected_refined.cif` (refined cell) is written on success.
 Results do not depend on `--workers`. Reference packing labels never enter
-matching. The engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
+matching. The engine is ported from Chengxi Zhao's `pxrd_csp_stop` 1.0.0.
 
 ## Optional packing validation
 

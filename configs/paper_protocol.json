@@ -35,7 +35,7 @@
     "validation_records": 266
   },
   "peak_match": {
-    "source": "pxrd_csp_stop 1.0.0 engine (Z. Xie)",
+    "source": "pxrd_csp_stop 1.0.0 engine (C. Zhao)",
     "per_space_group_energy_window_kj_mol": 3.0,
     "dedup_after_window": true,
     "dedup_density_tolerance_g_cm3": 0.2,

@@ -21,7 +21,7 @@ Experimental PXRD + molecular SMILES
   Stop at first match, else next group
 ```
 
-Each space group is searched on its own. Candidates within 3.0 kJ/mol of the group's lowest energy are deduplicated, their cells are refined against the measured peaks, and each gets a peak-match score B. The search stops only if the highest-scoring candidate passes the strong-peak check and reaches B ≥ 0.80. A match supports further structure assessment but does not prove structural identity. The peak-matching engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
+Each space group is searched on its own. Candidates within 3.0 kJ/mol of the group's lowest energy are deduplicated, their cells are refined against the measured peaks, and each gets a peak-match score B. The search stops only if the highest-scoring candidate passes the strong-peak check and reaches B ≥ 0.80. A match supports further structure assessment but does not prove structural identity. The peak-matching engine is ported from Chengxi Zhao's `pxrd_csp_stop` 1.0.0.
 
 ## What you can run
 
