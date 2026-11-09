@@ -79,7 +79,8 @@ python tools/embed_smiles.py --input smiles.csv --output molecular_embeddings.np
 python tools/train.py --train data/train.npz --val data/val.npz --output-dir runs/example
 python tools/evaluate.py --checkpoint runs/example/best.pt --data data/test.npz --output-dir evaluation
 python tools/infer.py --checkpoint runs/example/best.pt --data data/inference.npz --output predictions.csv
-python tools/score_pxrd_candidates.py --reference observed.npy --candidates candidates.npy --output scores.csv
+python tools/process_crystal_candidates.py --manifest relaxed_sg014.csv --output-dir processed
+python tools/score_pxrd_candidates.py --experimental observed.xy --manifest processed/representatives.csv --output-dir matched --workers 4
 ```
 
 `embed_smiles.py` defaults to `DeepChem/ChemBERTa-100M-MLM` revision
@@ -91,19 +92,31 @@ this tool does not canonicalize text or reconstruct the licensed molecule splits
 
 A synthetic, non-scientific smoke workflow is provided in `examples/minimal_workflow.py`. Its values only verify software contracts.
 
-The DTW command requires reference and candidate arrays on the same uniform
-grid and support. Use `--start-index` and `--stop-index` for a shared contiguous
-crop; do not drop isolated missing points and thereby compress the angular
-axis. Non-finite profiles and profiles with no positive signal after
-preprocessing are rejected. Negative values are clipped before reference-only minimum subtraction. Both
-inputs then undergo max100 scaling, five-point max pooling and independent
-L2 normalization. Intensities remain linear: there is no square-root transform.
-The local cost is absolute difference (scalar Euclidean distance), and the
-accumulated path cost is divided by the square root of the pooled length.
-The default radius 30 equals `dtaidistance` window 31, with zero penalty and
-no endpoint relaxation. Only the shared measured support is scored. These DTW transformations are separate from classifier
-preprocessing. `--band-points` is measured on the pooled grid, and incomplete
-trailing pooling bins are discarded.
+`process_crystal_candidates.py` takes the relaxed candidates of one space group,
+keeps those within 3.0 kJ/mol of that group's minimum and deduplicates only that
+window, in increasing energy, with pymatgen `StructureMatcher` (ltol 0.2, stol
+0.3, angle_tol 5°, `ElementComparator`, hydrogen ignored, `primitive_cell=False`,
+`scale=True`, `attempt_supercell=False`). A candidate is compared only with
+representatives whose density differs by at most 0.2 g/cm³; the lowest-energy
+member of each cluster is retained. It writes `representatives.csv`,
+`deduplication.csv` and `provenance.json`.
+
+`score_pxrd_candidates.py` scores one pool against a measured two-column pattern
+on its native regular grid. Candidate sticks are simulated with pymatgen for Cu Kα
+(1.54184 Å) and broadened by pseudo-Voigt (FWHM 0.15°, η 0.5). Both patterns are
+Gaussian-smoothed (σ 0.075°), background-corrected by SNIP (1.2°) on a
+log(1+√I) scale, smoothed again (σ 0.03375°) and max-normalised; major, medium
+and fine peak sets are then extracted. The candidate cell is refined by
+differential evolution (log lengths ±0.10, angles ±4°, zero shift ±0.40°; three
+restarts, maxiter 75, popsize 10, seeded from the CIF stem without `_opt` and the
+restart index); the restart with the largest objective is kept. A bidirectional
+strong-peak guard requires every major peak ≥0.70 in either pattern to have a
+counterpart ≥0.05 within r = 1.00 + 0.007·max(mean 2θ − 10, 0) degrees. The score
+is B = exp(−(1.00M + 0.30D + 0.30H)); a candidate matches iff the guard passes and
+B ≥ 0.80. Only the top-B candidate decides the pool, with no fallback. Outputs are
+`scores.csv`, `decision.json` and, on success, `selected_refined.cif`. Results do
+not depend on `--workers`. The engine is ported from Zikai Xie's `pxrd_csp_stop`
+1.0.0. These transformations are separate from classifier preprocessing.
 
 Checkpoint loading uses PyTorch's restricted `weights_only=True` loader.
 Existing staging schema-1 checkpoints without a class mapping remain readable;
@@ -111,13 +124,7 @@ arbitrary pickled Python objects are not supported. Training rejects non-finite
 losses and gradients; evaluation and inference reject non-finite logits before
 writing prediction outputs.
 
-Use `--energies energies.npy --candidate-ids ids.npy` with the DTW command
-to retain the 200 lowest-energy candidates and mark the ten best DTW scores.
-Input candidates must already be deduplicated within space groups and pooled
-over the selected groups for one molecule. Energy ties use string candidate IDs;
-DTW ties use energy, then ID. Without these files, the command only scores all
-supplied profiles; it does not apply the paper screening sequence. No packing
-labels or experimental structure are used for ranking.
+No packing labels or experimental structure are used for matching.
 
 See [paper-to-code correspondence](paper-code-map.md) for training stages,
 metrics, numerical definitions, downstream adapters and the external DFT boundary.
@@ -128,9 +135,7 @@ Run the synthetic CPU regression suite with:
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-For reference DTW verification, install `.[verification]`. The optional test
-compares both Python and C dtaidistance implementations. If the environment
-reports an MKL OpenMP symbol error, prefix the command with
+If the test environment reports an MKL OpenMP symbol error, prefix the command with
 `MKL_THREADING_LAYER=GNU`; this is an environment workaround, not a model setting.
 
 To assemble prepared profiles and cached molecular embeddings, use:

@@ -22,9 +22,8 @@ from src.evaluation.metrics import topk_summary
 from src.models.xraypro import CrystalGraphEncoder, ModelConfig, XRayProModel
 from src.runtime.checkpoints import load_checkpoint, save_checkpoint
 from src.runtime.io import model_config_from_bundle, validate_bundle_for_model
-from src.runtime.pxrd_dtw import constrained_dtw_distance, score_candidates
 from src.training.losses import LossConfig, classification_loss
-from tools import evaluate, infer, score_pxrd_candidates, train
+from tools import evaluate, infer, train
 
 
 class InputContractTest(unittest.TestCase):
@@ -118,20 +117,6 @@ class InputContractTest(unittest.TestCase):
                 torch.full((2, 3, 2), -1, dtype=torch.long),
                 torch.ones(2, 3, dtype=torch.bool),
             )
-
-    def test_dtw_rejects_missing_or_degenerate_signal(self) -> None:
-        reference = np.linspace(0, 1, 60)
-        for bad in (np.full(60, np.nan), np.full(60, np.inf), np.zeros(60), -np.ones(60)):
-            with self.subTest(bad=bad[0]), self.assertRaises(ValueError):
-                score_candidates(bad, reference[None, :])
-            with self.subTest(candidate=bad[0]), self.assertRaises(ValueError):
-                score_candidates(reference, bad[None, :])
-        with self.assertRaises(ValueError):
-            score_candidates(np.ones(60), reference[None, :])
-        with self.assertRaises(ValueError):
-            score_candidates(reference, np.empty((0, 60)))
-        with self.assertRaises(ValueError):
-            constrained_dtw_distance(np.array([]), np.array([]), 1)
 
     def test_explicit_classes_allow_missing_training_classes(self) -> None:
         bundle = self.load(labels=np.array([0, 1, 0]))
@@ -262,17 +247,6 @@ class InputContractTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "finite"):
                 infer.run(infer_args)
         self.assertFalse(infer_args.output.exists())
-        reference = np.linspace(0, 1, 60)
-        np.save(self.root / "reference.npy", reference)
-        np.save(self.root / "candidates.npy", np.stack([reference[::-1], reference]))
-        score_args = argparse.Namespace(
-            reference=self.root / "reference.npy", candidates=self.root / "candidates.npy",
-            output=self.root / "scores.csv", start_index=0, stop_index=None,
-            pooling_factor=5, band_points=2,
-        )
-        score_pxrd_candidates.run(score_args)
-        with score_args.output.open() as handle:
-            self.assertEqual(next(csv.DictReader(handle))["candidate_index"], "1")
 
 
 if __name__ == "__main__":

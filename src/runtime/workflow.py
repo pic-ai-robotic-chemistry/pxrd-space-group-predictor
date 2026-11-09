@@ -211,23 +211,15 @@ def invoke(run, module, arguments, directory, *, python=None, timeout=86400):
     run_logged(command, cwd=run.root, env=env, log=run.root / (directory.name + ".log"), timeout=timeout)
 
 
-def raw_profiles(path):
+def experimental_inputs(path):
+    """Classification profile and the measured pattern used for peak matching."""
     import numpy as np
-    from src.data.pxrd import CLASSIFICATION_GRID, preprocess_experimental
+    from src.data.pxrd import preprocess_experimental
+    from src.runtime.pxrd_peak_match import load_experimental_pxrd
     data = np.loadtxt(path, ndmin=2)
     if data.shape[1] != 2:
         raise ValueError("PXRD input must have exactly two columns")
-    prepared = preprocess_experimental(data[:, 0], data[:, 1])
-    data = data[np.argsort(data[:, 0], kind="stable")]
-    mask = (CLASSIFICATION_GRID >= data[0, 0]) & (CLASSIFICATION_GRID <= data[-1, 0])
-    positions = np.flatnonzero(mask)
-    if len(positions) < 5:
-        raise ValueError("measured support must contain at least five grid points")
-    # Preserve measured linear intensities here. DTW applies its own baseline later.
-    raw = np.interp(CLASSIFICATION_GRID, data[:, 0], data[:, 1], left=0, right=0)
-    if np.ptp(raw[mask]) <= 0:
-        raise ValueError("measured PXRD contains no varying signal")
-    return prepared, raw, int(positions[0]), int(positions[-1] + 1)
+    return preprocess_experimental(data[:, 0], data[:, 1]), load_experimental_pxrd(path)
 
 
 def choose_groups(predictions, override=None):
@@ -245,22 +237,13 @@ def choose_groups(predictions, override=None):
     return groups
 
 
-def export_ranked(processed, scores, directory):
-    from src.runtime.crystal_candidates import read_candidates, write_candidates
-    rows = read_candidates(processed / "representatives.csv")
-    by_id = {r["candidate_id"]: r for r in rows}
-    with scores.open(newline="") as stream:
-        selected = [r for r in csv.DictReader(stream) if r["selected"] == "True"]
-    directory.mkdir()
-    exported = []
-    for rank, score in enumerate(selected, 1):
-        row = dict(by_id[score["candidate_id"]])
-        destination = directory / f"rank_{rank:02d}.cif"
-        shutil.copy2(row["cif_path"], destination)
-        row["cif_path"] = destination.name
-        exported.append(row)
-    write_candidates(directory / "selected_candidates.csv", exported)
-    shutil.copy2(scores, directory / "ranking.csv")
+def pool_groups(rows, order):
+    present = {int(r["space_group"]) for r in rows}
+    if len(set(order)) != len(order):
+        raise ValueError("search groups must be unique")
+    if missing := [g for g in order if g not in present]:
+        raise ValueError(f"manifest has no candidates for space groups {missing}")
+    return order
 
 
 def execute(args):
@@ -269,9 +252,9 @@ def execute(args):
         raise ValueError("timeout must be finite and positive")
     if not math.isclose(args.wavelength, 1.54184, rel_tol=0, abs_tol=1e-5):
         raise ValueError("this model workflow requires Cu K-alpha wavelength 1.54184 angstrom; conversion is not automatic")
-    prepared, raw, start, stop = raw_profiles(args.pxrd)
+    prepared, measured = experimental_inputs(args.pxrd)
     identity = {"command": args.command, "input": file_identity(args.pxrd), "wavelength": args.wavelength,
-                "support": [start, stop], "timeout": args.timeout}
+                "timeout": args.timeout}
     package = Path(__file__).resolve().parents[2]
     identity["implementation"] = {str(p.relative_to(package)): sha256(p)
         for folder in ("src", "tools") for p in sorted((package / folder).rglob("*.py"))}
@@ -313,19 +296,19 @@ def execute(args):
         candidates = read_candidates(args.manifest)
         identity["manifest"] = file_identity(args.manifest)
         identity["cifs"] = [file_identity(r["cif_path"]) for r in candidates]
+        identity["space_groups"] = pool_groups(candidates, args.space_groups)
     with Run(args.output, identity, args.resume) as run:
-        return execute_stages(args, run, prepared, raw, start, stop,
+        return execute_stages(args, run, prepared, measured,
                               smiles if args.command != "rank" else None,
                               config if args.command != "rank" else None)
 
 
-def execute_stages(args, run, prepared, raw, start, stop, smiles, config):
+def execute_stages(args, run, prepared, measured, smiles, config):
     import numpy as np
     def prepare(directory):
         directory.mkdir()
         np.save(directory / "classification.npy", prepared, allow_pickle=False)
-        np.save(directory / "raw.npy", raw, allow_pickle=False)
-        record(directory / "support.json", {"start": start, "stop": stop})
+        np.savetxt(directory / "experimental.xy", measured)
         if args.command != "rank":
             record(directory / "model.json", config)
             with (directory / "molecules.csv").open("w", newline="") as stream:
@@ -354,31 +337,48 @@ def execute_stages(args, run, prepared, raw, start, stop, smiles, config):
             print(f"Predictions: {predicted / 'predictions.csv'}")
             return
         groups = choose_groups(predicted / "predictions.csv", args.space_groups)
-        run.state["search_groups"] = groups
-        def generate(directory):
-            call("tools.generate_crystal_candidates", ["--smiles", smiles, "--sample-id", args.sample_id,
-                "--space-groups", *groups, "--bomlip-root", args.bomlip_root.resolve(), "--output-dir", directory,
-                "--count", args.count, "--workers", args.workers, "--timeout", args.timeout], directory, args.engine_python)
-        generated = run.stage("generation", generate)
-        def relax(directory):
-            call("tools.relax_crystal_candidates", ["--manifest", generated / "candidates.csv", "--bomlip-root", args.bomlip_root.resolve(),
-                "--model", args.mace_model.resolve(), "--output-dir", directory, "--gpu", args.gpu,
-                "--workers", args.workers, "--timeout", args.timeout], directory, args.engine_python)
-        relaxed = run.stage("relaxation", relax)
-        manifest = relaxed / "relaxed.csv"
     else:
-        manifest = args.manifest.resolve()
-    def process(directory):
-        call("tools.process_crystal_candidates", ["--manifest", manifest, "--output-dir", directory], directory)
-    processed = run.stage("processing", process)
-    def score(directory):
-        directory.mkdir()
-        call("tools.score_pxrd_candidates", ["--reference", inputs / "raw.npy", "--candidates", processed / "candidates_raw.npy",
-            "--energies", processed / "energies.npy", "--candidate-ids", processed / "ids.npy", "--start-index", start,
-            "--stop-index", stop, "--output", directory / "ranking.csv"], directory)
-    scored = run.stage("ranking", score)
-    exported = run.stage("results", lambda directory: export_ranked(processed, scored / "ranking.csv", directory))
-    run.state.update(status="complete", results=str(exported.relative_to(run.root)),
-                     interpretation="Ranked candidate structures, not independently validated structure solutions.")
+        from src.runtime.crystal_candidates import read_candidates, write_candidates
+        groups = args.space_groups
+        rows = read_candidates(args.manifest.resolve())
+    run.state["search_groups"] = groups
+    searched = []
+    for group in groups:
+        tag = f"sg{group:03d}"
+        if args.command == "run":
+            def generate(directory, group=group):
+                call("tools.generate_crystal_candidates", ["--smiles", smiles, "--sample-id", args.sample_id,
+                    "--space-groups", group, "--bomlip-root", args.bomlip_root.resolve(), "--output-dir", directory,
+                    "--count", args.count, "--workers", args.workers, "--timeout", args.timeout], directory, args.engine_python)
+            generated = run.stage(f"{tag}-generation", generate)
+            def relax(directory):
+                call("tools.relax_crystal_candidates", ["--manifest", generated / "candidates.csv", "--bomlip-root", args.bomlip_root.resolve(),
+                    "--model", args.mace_model.resolve(), "--output-dir", directory, "--gpu", args.gpu,
+                    "--workers", args.workers, "--timeout", args.timeout], directory, args.engine_python)
+            manifest = run.stage(f"{tag}-relaxation", relax) / "relaxed.csv"
+        else:
+            def split(directory, group=group):
+                directory.mkdir()
+                pool = [r for r in rows if int(r["space_group"]) == group]
+                write_candidates(directory / "pool.csv", pool)
+            manifest = run.stage(f"{tag}-pool", split) / "pool.csv"
+        def process(directory, manifest=manifest):
+            call("tools.process_crystal_candidates", ["--manifest", manifest, "--output-dir", directory], directory)
+        processed = run.stage(f"{tag}-processing", process)
+        def score(directory, processed=processed):
+            call("tools.score_pxrd_candidates", ["--experimental", inputs / "experimental.xy",
+                "--manifest", processed / "representatives.csv", "--output-dir", directory,
+                "--workers", args.workers], directory)
+        matched = run.stage(f"{tag}-matching", score)
+        decision = json.loads((matched / "decision.json").read_text())
+        searched.append({"space_group": group, "signal": decision["signal"],
+                         "top_B": decision["top_candidate"]["B"], "directory": matched.name})
+        if decision["signal"] == "STOP_SUCCESS":
+            break
+    run.state.update(status="complete", searched=searched,
+                     result="STOP_SUCCESS" if searched[-1]["signal"] == "STOP_SUCCESS" else "NO_MATCH_IN_SEARCH_LIST",
+                     interpretation="A PXRD peak match supports, but does not establish, structural identity.")
     record(run.path, run.state)
-    print(f"Ranked CIFs and tables: {exported}")
+    for entry in searched:
+        print(f"SG{entry['space_group']}: {entry['signal']} (top B={entry['top_B']:.4f})")
+    print(f"Result: {run.state['result']}; details in {run.path}")

@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.2.0.dev1 — current development version
+## 0.3.0.dev1 — current development version
+
+- Replaced DTW candidate ranking with PXRD peak matching ported from Zikai Xie's
+  `pxrd_csp_stop` 1.0.0: native-grid experimental pattern, SNIP correction,
+  lattice refinement, bidirectional strong-peak guard and score B ≥ 0.80.
+- `pxrd-sg run` and `pxrd-sg rank` now search space groups sequentially and stop
+  at the first group whose top-B candidate matches; `run.json` records `searched`
+  and `result`. `rank` requires `--space-groups` and accepts `--workers`.
+- Processing now keeps a 3.0 kJ/mol per-group energy window and deduplicates it
+  with a 0.2 g/cm³ density gate; PXRD arrays are no longer exported.
+- `score_pxrd_candidates.py` takes `--experimental`, `--manifest`, `--output-dir`
+  and `--workers`, and writes `scores.csv`, `decision.json` and, on a match,
+  `selected_refined.cif`.
+- Removed DTW, the 200-by-energy/top-ten selection, `dtaidistance` and the
+  `verification` extra.
+
+## 0.2.0.dev1
 
 - Added the unified predict, run, rank and doctor CLI, with checked stage resume.
 - Published the designated classifier separately in weights-v1.

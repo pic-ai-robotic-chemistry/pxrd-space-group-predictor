@@ -1,7 +1,7 @@
 # Downstream crystal workflow
 
-These adapters connect the existing prediction and DTW tools to BOMLIP-CSP,
-MACE relaxation, within-space-group deduplication and optional licensed packing
+These adapters connect the existing prediction and PXRD peak-matching tools to
+BOMLIP-CSP, MACE relaxation, within-space-group deduplication and optional licensed packing
 validation. They preserve the reported numerical settings. They do not supply
 trained weights, licensed structures or the historical calculation environment.
 Protocol agreement does not imply bitwise reproduction of historical results.
@@ -12,9 +12,11 @@ For the primary workflow, follow [the tested Conda installation](../environments
 and [the CLI guide](cli.md). Keep prediction and engine environments separate;
 pass the engine interpreter through `--engine-python`.
 
-The per-stage Python commands below are advanced source-checkout interfaces.
-Run generation and relaxation with the engine Python, and processing/scoring
-with the prediction Python. Consult each command's `--help` for parameters.
+The per-stage Python commands below are advanced source-checkout interfaces;
+`pxrd-sg run` and `pxrd-sg rank` call them once per space group in search order
+and stop at the first match. Run generation and relaxation with the engine
+Python, and processing/matching with the prediction Python. Consult each
+command's `--help` for parameters.
 
 Obtain a **clean** clone of
 https://github.com/pic-ai-robotic-chemistry/BOMLIP-CSP at commit
@@ -41,7 +43,7 @@ guarantee that coverage.
 ## Generate candidates
 
 ```bash
-python tools/generate_crystal_candidates.py --smiles CCO --sample-id ethanol --space-groups 1 2 --bomlip-root /path/to/BOMLIP-CSP --output-dir runs/task/generated --count 5000 --workers 8
+python tools/generate_crystal_candidates.py --smiles CCO --sample-id ethanol --space-groups 1 --bomlip-root /path/to/BOMLIP-CSP --output-dir runs/task/sg001-generated --count 5000 --workers 8
 ```
 
 ETKDGv3 requests 20 explicit-hydrogen conformers, with seed 240430 and RMS pruning
@@ -61,7 +63,7 @@ redetermined final symmetry. Keep output directories intact when reusing manifes
 ## Two-stage MACE relaxation
 
 ```bash
-python tools/relax_crystal_candidates.py --manifest runs/task/generated/candidates.csv --bomlip-root /path/to/BOMLIP-CSP --model /path/to/MACE-OFF23_small.model --output-dir runs/task/relaxed --gpu 0 --workers 8
+python tools/relax_crystal_candidates.py --manifest runs/task/sg001-generated/candidates.csv --bomlip-root /path/to/BOMLIP-CSP --model /path/to/MACE-OFF23_small.model --output-dir runs/task/sg001-relaxed --gpu 0 --workers 8
 ```
 
 The atom count per molecule comes from the hash-linked `generation.json` beside
@@ -85,69 +87,80 @@ and JSON outputs before scientific interpretation. Preserve flagged candidates
 as in the reported screening protocol; report their count instead of silently
 claiming all structures converged. A missing/invalid output fails the command.
 
-## Deduplicate and simulate
+## Low-energy window and deduplication
 
 ```bash
-python tools/process_crystal_candidates.py --manifest runs/task/relaxed/relaxed.csv --output-dir runs/task/processed
+python tools/process_crystal_candidates.py --manifest runs/task/sg001-relaxed/relaxed.csv --output-dir runs/task/sg001-processed
 ```
 
-Within each requested space group, sort by energy then string ID. Use
-StructureMatcher with ltol 0.2, stol 0.3, angle tolerance 5°, ElementComparator,
-ignored H, primitive_cell=False, scale=True and attempt_supercell=False. Assign
-each structure to the first directly matching retained representative. There is
-no transitive closure, cross-group merging, energy/density prefilter or early stop.
-The representative manifest and mapping preserve that provenance.
+The manifest must contain exactly one space group. Energies are taken relative
+to that group's minimum; candidates with ΔE ≤ 3.0 kJ/mol are kept and the rest
+are not processed further. The window is sorted by energy then string ID and
+deduplicated with StructureMatcher (ltol 0.2, stol 0.3, angle tolerance 5°,
+ElementComparator, ignored H, primitive_cell=False, scale=True,
+attempt_supercell=False). A structure is compared only with retained
+representatives whose density differs by at most 0.2 g/cm³ and joins the first
+that matches, so the lowest-energy member represents each cluster. There is no
+transitive closure or cross-group merging. `representatives.csv` (with
+`relative_energy`), `deduplication.csv` and `provenance.json` record the result;
+no PXRD arrays are exported.
 
-Simulate Cu Kα PXRD at 1.54184 Å on 3,400 points, 2.00–69.98° with step 0.02°;
-query peaks over 2–70°. Apply pseudo-Voigt broadening with FWHM 0.15° and Lorentz
-fraction 0.5, then linear max100 scaling to float32. Export aligned
-`candidates_raw.npy`, `energies.npy` and `ids.npy` for the existing DTW command.
-
-## Energy and DTW selection
+## PXRD peak matching and stopping
 
 ```bash
-python tools/score_pxrd_candidates.py --reference observed_raw.npy --candidates runs/task/processed/candidates_raw.npy --energies runs/task/processed/energies.npy --candidate-ids runs/task/processed/ids.npy --start-index 0 --stop-index 3400 --output runs/task/scores.csv
+python tools/score_pxrd_candidates.py --experimental observed.xy --manifest runs/task/sg001-processed/representatives.csv --output-dir runs/task/sg001-matched --workers 8
 ```
 
-The example assumes full measured support. Interpolate the raw experimental
-profile onto the same grid without the classification background filter and
-choose actual measured crop indices. First crop both profiles; then subtract
-the experimental minimum within that interval. Both profiles undergo max100,
-five-point maximum pooling and independent L2 normalization. Discard an incomplete
-final bin. Use linear intensities, band radius 30, absolute local differences,
-zero penalty/endpoint relaxation, and divide accumulated cost by sqrt(pooled
-length). Keep up to 200 lowest-energy representatives, then select up to ten by
-DTW. Energy ties use ID; DTW ties use energy then ID. Reference packing labels
-never enter this selection. Fewer available candidates remain a smaller set.
+Supply the measured two-column pattern on its native regular 2θ grid, without
+the classification background filter. Candidate sticks are simulated for Cu Kα
+(1.54184 Å), broadened by pseudo-Voigt (FWHM 0.15°, η 0.5) and processed with
+the experimental pattern by Gaussian smoothing (σ 0.075°), SNIP background
+removal (1.2°) on a log(1+√I) scale, a second smoothing (σ 0.03375°) and max-1
+normalisation. Major, medium and fine peak sets are extracted. Each candidate
+cell is refined by differential evolution (log lengths ±0.10, angles ±4°, zero
+shift ±0.40°; three restarts, maxiter 75, popsize 10, seeds from the CIF stem
+without `_opt` and the restart index), keeping the restart with the largest
+objective. A bidirectional guard requires every major peak ≥0.70 in either
+pattern to have a counterpart ≥0.05 within 1.00 + 0.007·max(mean 2θ − 10, 0)
+degrees. B = exp(−(1.00M + 0.30D + 0.30H)). A candidate matches iff the guard
+passes and B ≥ 0.80.
+
+Only the top-B candidate decides the group: `decision.json` records
+`STOP_SUCCESS` if it matches, otherwise the search continues with the next group;
+lower-ranked candidates are never used as a fallback. `scores.csv` lists all
+representatives; `selected_refined.cif` (refined cell) is written on success.
+Results do not depend on `--workers`. Reference packing labels never enter
+matching. The engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
 
 ## Optional packing validation
 
 ```bash
-python tools/validate_crystal_packing.py --manifest runs/task/processed/representatives.csv --reference unoptimized_experimental.cif --output-dir runs/task/packing --timeout 30
+python tools/validate_crystal_packing.py --manifest runs/task/sg001-processed/representatives.csv --reference unoptimized_experimental.cif --output-dir runs/task/packing --timeout 30
 ```
 
-Run this only if you have a separate CSD license and a compatible CCDC Python API environment. The repository does not install, download or redistribute the CCDC API or CSD records. Users without this license must skip this optional post-ranking step. Only
+Run this only if you have a separate CSD license and a compatible CCDC Python API environment. The repository does not install, download or redistribute the CCDC API or CSD records. Users without this license must skip this optional post-matching step. Only
 standard-library dependencies are needed by this adapter; the reference and
 candidate paths must be readable by that environment. PackingSimilarity requires
 all 15 molecules in the shell, distance tolerance 0.2, angle tolerance 20°,
 no molecular differences, artificial inversion enabled, and ignored hydrogen
 positions/counts and bond counts. Each candidate runs in a bounded subprocess.
 Errors and timeouts have null hit values and produce a nonzero command exit;
-they are unresolved, not negative matches. The result is post-ranking validation
-and cannot change the DTW shortlist. Supply a selected-subset manifest if only
-the final ten should be validated. DFT remains a separate workflow.
+they are unresolved, not negative matches. The result is post-hoc validation and
+cannot change the stopping decision. A peak match supports, but does not
+establish, structural identity. DFT remains a separate workflow.
 
 ## Verification boundary
 
 Tests cover manifests, hash/unit checks, molecular normalization, synthetic
-structures, subprocess failure/timeout and the existing classifier/DTW workflows.
+structures, subprocess failure/timeout and the classifier and peak-matching workflows.
 Execution smoke tests do not establish predictive accuracy or reproduce the
 paper's full CSP results. The [trained classifier](model-weights.md) is a separate
 public Release download. Licensed datasets remain excluded. Obtain ChemBERTa
 and MACE through their upstream sources; do not substitute random weights.
 
-The verification run included one real ethanol candidate through generation,
-two-stage MACE, deduplication, simulation and DTW. Original-helper comparisons
+The historical execution run took one real ethanol candidate through generation
+and two-stage MACE relaxation with the earlier, since-removed profile ranking.
+Peak matching was verified separately on recorded CSP pools. Original-helper comparisons
 covered three synthetic structures. A licensed Windows CSD API self-match returned
 15 matched molecules and zero RMSD, but its Python process stalled during exit.
 Clean termination of that platform's complete packing CLI remains unverified.

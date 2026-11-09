@@ -1,83 +1,71 @@
 #!/usr/bin/env python3
-"""Rank simulated candidate PXRD profiles by constrained DTW distance."""
+"""Score one deduplicated space-group pool against experimental PXRD and decide whether to stop."""
 
 from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 from pathlib import Path
-
-import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.runtime.pxrd_dtw import score_candidates, screen_candidates
+from src.runtime.crystal_candidates import read_candidates
+from src.runtime import pxrd_peak_match as pm
 
 
-def run(args: argparse.Namespace) -> None:
-    reference = np.load(args.reference, allow_pickle=False)
-    candidates = np.load(args.candidates, allow_pickle=False)
-    if reference.ndim != 1:
-        raise ValueError("reference must be a one-dimensional NPY array")
-    if candidates.ndim != 2 or candidates.shape[1] != reference.shape[0]:
-        raise ValueError("candidates must have shape [N, reference_length]")
-    start = args.start_index
-    stop = args.stop_index if args.stop_index is not None else reference.shape[0]
-    if not 0 <= start < stop <= reference.shape[0]:
-        raise ValueError("invalid profile crop")
-    energies_path = getattr(args, "energies", None)
-    ids_path = getattr(args, "candidate_ids", None)
-    if (energies_path is None) != (ids_path is None):
-        raise ValueError("--energies and --candidate-ids must be supplied together")
-    if energies_path is not None:
-        rows = screen_candidates(
-            reference[start:stop], candidates[:, start:stop],
-            np.load(energies_path, allow_pickle=False), np.load(ids_path, allow_pickle=False),
-            energy_limit=args.energy_limit, top_count=args.top_count,
-            pooling_factor=args.pooling_factor, band_points=args.band_points)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(rows)
-        return
-    scores = score_candidates(
-        reference[start:stop],
-        candidates[:, start:stop],
-        pooling_factor=args.pooling_factor,
-        band_points=args.band_points,
-    )
-    order = np.argsort(scores, kind="stable")
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(["rank", "candidate_index", "dtw_distance"])
-        for rank, candidate_index in enumerate(order, start=1):
-            writer.writerow([rank, int(candidate_index), f"{float(scores[candidate_index]):.17g}"])
+def run(args: argparse.Namespace) -> dict:
+    reps = read_candidates(args.manifest)
+    if len({r["space_group"] for r in reps}) != 1:
+        raise ValueError("score one space-group pool at a time")
+    # The pool minimum is always a representative, so this equals the pool-relative energy.
+    minimum = min(float(r["energy_per_molecule"]) for r in reps)
+    candidates = [(r["candidate_id"], r["cif_path"], float(r["energy_per_molecule"]) - minimum) for r in reps]
+    exp_levels, xlo, xhi = pm.experimental_peaks(pm.load_experimental_pxrd(args.experimental))
+    rows, match = pm.evaluate_pool(exp_levels, xlo, xhi, candidates, workers=args.workers)
+    args.output_dir.mkdir(parents=True, exist_ok=False)
+    with (args.output_dir / "scores.csv").open("x", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=["rank", *rows[0]])
+        writer.writeheader()
+        writer.writerows({"rank": rank, **row} for rank, row in enumerate(rows, 1))
+    top = rows[0]
+    decision = {
+        "space_group": int(reps[0]["space_group"]),
+        "signal": "STOP_SUCCESS" if match else "CONTINUE_NEXT_SPACE_GROUP",
+        "reason": "TOP_B_PASSED" if match else
+                  "TOP_B_FAILED_HARD_GUARD" if not top["guard_guard"] else "TOP_B_BELOW_THRESHOLD",
+        "top_candidate": {key: top[key] for key in ("candidate_id", "relative_energy_kj_mol", "B", "M", "D", "H",
+                                                    "guard_guard", "restart", "zero_shift")},
+        "candidate_count": len(rows),
+        "settings": {"energy_window_kj_mol": pm.ENERGY_WINDOW_KJ_MOL, "threshold": pm.SCORE_THRESHOLD,
+                     "weights_MDH": [pm.WEIGHT_M, pm.WEIGHT_D, pm.WEIGHT_H],
+                     "source_floor": pm.SOURCE_FLOOR, "counterpart_floor": pm.COUNTERPART_FLOOR,
+                     "restarts": pm.RESTARTS, "maxiter": pm.MAXITER, "popsize": pm.POPSIZE},
+        "refined_cif": None,
+    }
+    if match:
+        from pymatgen.io.cif import CifWriter
+        source = Path(next(path for cid, path, _ in candidates if cid == match["candidate_id"]))
+        cell = tuple(match[key] for key in ("a", "b", "c", "alpha", "beta", "gamma"))
+        CifWriter(pm.structure_with_lattice(pm.load_structure(source), cell)).write_file(
+            args.output_dir / "selected_refined.cif")
+        decision["refined_cif"] = "selected_refined.cif"
+    (args.output_dir / "decision.json").write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")
+    print(f"SG{decision['space_group']}: {decision['signal']} (top B={top['B']:.4f})")
+    return decision
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference", type=Path, required=True)
-    parser.add_argument("--candidates", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--energies", type=Path, help="Comparable per-molecule energies (.npy).")
-    parser.add_argument("--candidate-ids", type=Path, help="Unique string identifiers (.npy).")
-    parser.add_argument("--energy-limit", type=int, default=200)
-    parser.add_argument("--top-count", type=int, default=10)
-    parser.add_argument("--start-index", type=int, default=0)
-    parser.add_argument("--stop-index", type=int)
-    parser.add_argument("--pooling-factor", type=int, default=5)
-    parser.add_argument(
-        "--band-points",
-        type=int,
-        default=30,
-        help="Warping half-width in pooled-profile index units.",
-    )
-    return parser.parse_args()
+    parser.add_argument("--experimental", type=Path, required=True,
+                        help="Two columns: degrees 2theta, linear intensity (measured, not background-corrected)")
+    parser.add_argument("--manifest", type=Path, required=True, help="representatives.csv of one space-group pool")
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--workers", type=int, default=1, help="Processes; results do not depend on this")
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":

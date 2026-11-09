@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import numpy as np
 from src.cli import parser
-from src.runtime.workflow import Run, check_checkpoint, choose_groups, raw_profiles, invoke
+from src.runtime.workflow import Run, check_checkpoint, choose_groups, experimental_inputs, execute_stages, invoke, pool_groups
 
 
 class CliTests(unittest.TestCase):
@@ -113,27 +113,61 @@ class CliTests(unittest.TestCase):
                 if Path(f"/proc/{pid}").exists():
                     os.kill(pid, 15)
 
-    def test_raw_dtw_input_retains_baseline_and_measured_support(self):
+    def test_peak_match_input_keeps_measured_grid_and_signal(self):
         from src.data.pxrd import preprocess_experimental
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "observed.xy"
-            theta = np.arange(10, 50.001, .02)
+            theta = np.arange(10, 50.001, .01)
             intensity = 7 + 50 * np.exp(-((theta - 20) / .1) ** 2)
             np.savetxt(p, np.column_stack([theta, intensity]))
-            prepared, raw, start, stop = raw_profiles(p)
+            prepared, measured = experimental_inputs(p)
             np.testing.assert_array_equal(prepared, preprocess_experimental(theta, intensity))
-            self.assertEqual(start, 400)
-            self.assertGreater(raw[start:stop].min(), 6.99)
-            self.assertEqual(raw[0], 0)
-            self.assertLess(prepared.min(), .01)
+            np.testing.assert_allclose(measured[:, 0], theta)
+            self.assertGreater(measured[:, 1].min(), 6.99)
 
     def test_zero_signal_and_wrong_model_hash_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "bad.xy"
             np.savetxt(p, [[10, 0], [20, 0]])
-            with self.assertRaises(ValueError): raw_profiles(p)
+            with self.assertRaises(ValueError): experimental_inputs(p)
             with self.assertRaises(ValueError): check_checkpoint(p, "0" * 64)
 
+    def test_rank_order_must_be_unique_and_present(self):
+        rows = [{"space_group": "14"}, {"space_group": "2"}]
+        self.assertEqual(pool_groups(rows, [2, 14]), [2, 14])
+        with self.assertRaisesRegex(ValueError, "no candidates"): pool_groups(rows, [2, 19])
+        with self.assertRaisesRegex(ValueError, "unique"): pool_groups(rows, [2, 2])
+
+    def test_search_stops_at_first_matching_space_group(self):
+        from argparse import Namespace
+        from src.runtime.crystal_candidates import candidate_row, write_candidates
+        signals = {14: "CONTINUE_NEXT_SPACE_GROUP", 2: "STOP_SUCCESS", 19: "STOP_SUCCESS"}
+        called = []
+        def fake(run, module, arguments, directory, **_):
+            called.append((module, directory.name))
+            directory.mkdir()
+            if module == "tools.process_crystal_candidates":
+                (directory / "representatives.csv").write_text("placeholder")
+            else:
+                group = int(directory.name[2:5])
+                (directory / "decision.json").write_text(json.dumps(
+                    {"signal": signals[group], "top_candidate": {"B": 0.5}}))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = []
+            for group in (14, 2, 19):
+                cif = root / f"c{group}.cif"
+                cif.write_text("data_x")
+                rows.append(candidate_row("s", group, cif, energy=0.0, status="completed"))
+            write_candidates(root / "relaxed.csv", rows)
+            args = Namespace(command="rank", manifest=root / "relaxed.csv", space_groups=[14, 2, 19],
+                             workers=1, timeout=10)
+            with Run(root / "run", {}) as run, patch("src.runtime.workflow.invoke", side_effect=fake):
+                execute_stages(args, run, np.zeros(3400, dtype=np.float32), np.ones((5, 2)), None, None)
+            state = json.loads((root / "run" / "run.json").read_text())
+        self.assertEqual([e["space_group"] for e in state["searched"]], [14, 2])
+        self.assertEqual(state["result"], "STOP_SUCCESS")
+        self.assertFalse(any(name.startswith("sg019") for _, name in called))
 
 if __name__ == "__main__":
     unittest.main()

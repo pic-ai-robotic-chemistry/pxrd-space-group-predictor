@@ -1,6 +1,6 @@
 {
   "purpose": "Record manuscript/SI settings; downstream adapters use the fixed protocols documented in docs/downstream-workflow.md. External key names are retained for compatibility.",
-  "baseline_date": "2026-10-18",
+  "baseline_date": "2026-11-09",
   "classification": {
     "grid_start_degrees": 2.0,
     "grid_step_degrees": 0.02,
@@ -34,17 +34,60 @@
     "adaptation_records": 512,
     "validation_records": 266
   },
-  "dtw": {
-    "intensity_transform": "linear",
-    "pooling_factor": 5,
-    "dtaidistance_window": 31,
-    "maximum_pooled_displacement": 30,
-    "inner_distance": "euclidean",
-    "penalty": 0,
-    "psi": 0,
-    "normalization": "divide accumulated cost by sqrt(pooled length)",
-    "energy_candidates": 200,
-    "dtw_shortlist": 10
+  "peak_match": {
+    "source": "pxrd_csp_stop 1.0.0 engine (Z. Xie)",
+    "per_space_group_energy_window_kj_mol": 3.0,
+    "dedup_after_window": true,
+    "dedup_density_tolerance_g_cm3": 0.2,
+    "grid_degrees": [
+      2.0,
+      69.98,
+      0.02
+    ],
+    "pseudo_voigt": {
+      "fwhm_degrees": 0.15,
+      "eta": 0.5
+    },
+    "smoothing_sigma_degrees": [
+      0.075,
+      0.03375
+    ],
+    "snip": {
+      "window_degrees": 1.2,
+      "intensity_transform": "log(1+sqrt(I))"
+    },
+    "peak_levels": {
+      "major": [
+        0.05,
+        0.015
+      ],
+      "medium": [
+        0.015,
+        0.006
+      ],
+      "fine": [
+        0.005,
+        0.003
+      ]
+    },
+    "refinement": {
+      "log_length_bound": 0.1,
+      "angle_bound_degrees": 4.0,
+      "zero_shift_bound_degrees": 0.4,
+      "restarts": 3,
+      "maxiter": 75,
+      "popsize": 10,
+      "restart_choice": "largest refinement objective"
+    },
+    "tolerance": "1.00 + 0.007*max(mean_2theta - 10, 0)",
+    "guard": {
+      "source_floor": 0.7,
+      "counterpart_floor": 0.05,
+      "bidirectional": true
+    },
+    "score": "B = exp(-(1.00 M + 0.30 D + 0.30 H))",
+    "threshold": 0.8,
+    "decision": "only the highest-B candidate decides; no fallback"
   },
   "external_structure_matcher": {
     "ltol": 0.2,
@@ -57,7 +100,7 @@
     "primitive_cell": false,
     "scale": true,
     "attempt_supercell": false,
-    "energy_density_prefilter": false
+    "energy_density_prefilter": "density difference <= 0.2 g/cm3 within the 3 kJ/mol window"
   },
   "external_packing_validation": {
     "shell_molecules": 15,

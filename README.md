@@ -1,6 +1,6 @@
 # PXRD Space Group Predictor
 
-Predict molecular-crystal space groups from an experimental powder X-ray diffraction (PXRD) pattern and a molecular SMILES string. Use the predicted shortlist to guide crystal structure prediction, then rank candidate structures by energy and agreement with the experimental PXRD pattern.
+Predict molecular-crystal space groups from an experimental powder X-ray diffraction (PXRD) pattern and a molecular SMILES string. Use the predicted shortlist to order a sequential crystal structure prediction search that stops at the first space group whose candidates match the experimental PXRD peaks.
 
 The project provides a command-line interface (`pxrd-sg`) and a companion skill for AI agents.
 
@@ -9,26 +9,27 @@ Experimental PXRD + molecular SMILES
                  ↓
        Space-group prediction
                  ↓
+  For each group in predicted order:
    Candidate generation with BOMLIP-CSP
                  ↓
         MACE structure relaxation
                  ↓
-  Deduplication and PXRD simulation
+  Low-energy window and deduplication
                  ↓
-   Energy preselection and DTW ranking
+   PXRD peak matching (top-B candidate)
                  ↓
-       Ranked candidates and CIFs
+  Stop at first match, else next group
 ```
 
-DTW (dynamic time warping) measures agreement between diffraction profiles. Candidate rankings support further structure assessment; they do not establish structural identity.
+Each space group is searched separately. Representatives within 3.0 kJ/mol of that group's minimum are scored against the measured pattern by lattice-refined peak matching; only the top-scoring candidate decides whether the search stops. A peak match supports further structure assessment; it does not establish structural identity. The peak-matching engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
 
 ## What you can run
 
 | Command | Inputs | Outputs |
 | --- | --- | --- |
 | `pxrd-sg predict` | Raw PXRD, molecular SMILES and model assets | Space-group probabilities and a ranked shortlist |
-| `pxrd-sg run` | Prediction inputs, engine assets and an explicit search budget | Candidate structures, energies, DTW rankings and selected CIFs |
-| `pxrd-sg rank` | Raw PXRD and a relaxed-candidate manifest | Candidate rankings and selected CIFs, without classifier inference |
+| `pxrd-sg run` | Prediction inputs, engine assets and an explicit search budget | Per-group candidates, peak-match scores, stop decision and refined CIF of a match |
+| `pxrd-sg rank` | Raw PXRD, a relaxed-candidate manifest and a search order | Per-group peak-match scores and stop decision, without classifier inference |
 
 `pxrd-sg doctor` checks dependencies and supplied assets before computation. Runs record input/model hashes, settings and output checksums. Use `--resume` to reuse verified completed stages.
 
@@ -41,7 +42,7 @@ cd pxrd-space-group-predictor
 
 1. Follow the [Conda installation guide](environments/README.md). Prediction and ranking use one environment; candidate generation and MACE relaxation use a separate GPU engine.
 2. Download and verify the [required model assets](docs/model-weights.md).
-3. Follow the [CLI examples](docs/cli.md) to check the environment and run prediction, a full workflow or independent ranking.
+3. Follow the [CLI examples](docs/cli.md) to check the environment and run prediction, a full workflow or peak matching of existing candidates.
 
 Supply PXRD as two columns: angle in degrees 2theta and linear intensity. The current CLI requires a wavelength of 1.54184 Å. Full runs also require a candidate count and GPU selection.
 
@@ -78,4 +79,4 @@ Formal software and classifier license terms, citation metadata and archival dep
 - [Training, array formats and direct adapters](docs/advanced-usage.md)
 - [Paper-to-code correspondence](docs/paper-code-map.md)
 
-Validation includes the 58-test suite and a one-candidate GPU workflow, with stage resume, independent ranking and output-hash checks. These checks establish software execution in the tested environments, not reproduction of the paper's full results. See the environment guide for the validation scope.
+Validation includes the 57-test suite and a one-candidate GPU workflow, with stage resume and output-hash checks. These checks establish software execution in the tested environments, not reproduction of the paper's full results. See the environment guide for the validation scope.
