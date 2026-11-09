@@ -88,8 +88,9 @@ Full candidate runs also require the separately configured BOMLIP-CSP/MACE stack
 MACE weights are obtained upstream. CCDC packing validation is optional and
 requires the user's own CSD license. See [the downstream guide](downstream-workflow.md).
 
-The author has authorized public distribution of this file. Formal software and
-model license terms are still pending; no additional license is assigned here.
+The author has authorized public distribution of this file. The repository's
+source code is MIT-licensed; formal license terms for this weight file are still
+pending, and the MIT License does not extend to it.
 
 ## Download ChemBERTa
 

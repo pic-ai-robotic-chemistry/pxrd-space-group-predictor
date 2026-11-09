@@ -21,6 +21,7 @@
 - The experimental pattern is minimum-subtracted and scaled to 100 on the 0.02°
   grid before peak matching, as in the runs behind the reported results.
 - The refined CIF is written in explicit text mode, which recent monty requires.
+- The source code is released under the MIT License.
 
 ## 0.2.0.dev1
 
