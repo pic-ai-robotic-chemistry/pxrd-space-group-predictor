@@ -15,6 +15,9 @@
   `selected_refined.cif`.
 - Removed DTW, the 200-by-energy/top-ten selection, `dtaidistance` and the
   `verification` extra.
+- Workflow stages now run the `src`/`tools` code of the invoking package. An
+  older `pxrd-sg` left installed in the same environment previously took
+  precedence and ran its own stage tools.
 
 ## 0.2.0.dev1
 
