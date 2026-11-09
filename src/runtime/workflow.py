@@ -201,9 +201,12 @@ def invoke(run, module, arguments, directory, *, python=None, timeout=86400):
     package_root = Path(__file__).resolve().parents[2]
     env = os.environ.copy()
     env["HF_HUB_OFFLINE"] = env["TRANSFORMERS_OFFLINE"] = "1"
-    # Append our adapter location after the selected interpreter's dependencies.
-    # Prepending another venv's site-packages can load the wrong NumPy/PyTorch.
-    bootstrap = "import runpy,sys; sys.path.append(sys.argv.pop(1)); runpy.run_module(sys.argv.pop(1), run_name='__main__')"
+    # Bind our src/tools packages to package_root first: an older installed copy or
+    # PYTHONPATH entry must not shadow the running code. Then move package_root after
+    # the interpreter's own paths, because for a wheel it is a site-packages directory
+    # and prepending another venv's site-packages can load the wrong NumPy/PyTorch.
+    bootstrap = ("import runpy,sys; root=sys.argv.pop(1); sys.path.insert(0, root); import src, tools; "
+                 "sys.path.remove(root); sys.path.append(root); runpy.run_module(sys.argv.pop(1), run_name='__main__')")
     command = [str(python or sys.executable), "-c", bootstrap, str(package_root), module, *map(str, arguments)]
     entry = {"command": command, "cwd": str(run.root)}
     run.state.setdefault("commands", []).append(entry)

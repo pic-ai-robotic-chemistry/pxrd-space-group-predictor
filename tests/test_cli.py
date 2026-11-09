@@ -93,6 +93,26 @@ class CliTests(unittest.TestCase):
                 self.assertIn("--space-groups", result.stdout)
                 self.assertIn("sys.path.append", command[2])
 
+    def test_stale_installed_adapters_do_not_shadow_running_code(self):
+        # An older wheel left in the interpreter (or on PYTHONPATH) once ran the
+        # previous scoring tool from a checkout run.
+        with tempfile.TemporaryDirectory() as tmp:
+            stale = Path(tmp) / "stale"
+            for package in ("src", "tools"):
+                (stale / package).mkdir(parents=True)
+                (stale / package / "__init__.py").write_text("")
+            (stale / "tools" / "score_pxrd_candidates.py").write_text("print('STALE')")
+            with Run(Path(tmp) / "run", {}) as run:
+                captured = []
+                with patch("src.runtime.workflow.run_logged", side_effect=lambda command, **kwargs: captured.append((command, kwargs))):
+                    invoke(run, "tools.score_pxrd_candidates", ["--help"], run.root / "score")
+                command, options = captured[0]
+                env = dict(options["env"], PYTHONPATH=str(stale))
+                result = subprocess.run(command, cwd=run.root, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--experimental", result.stdout)
+        self.assertNotIn("STALE", result.stdout)
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux process-lifecycle regression")
     def test_timeout_stops_nested_engine_process(self):
         from src.runtime.downstream_execution import run_logged
