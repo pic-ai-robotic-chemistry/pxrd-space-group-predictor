@@ -50,8 +50,9 @@ def run(args: argparse.Namespace) -> dict:
         from pymatgen.io.cif import CifWriter
         source = Path(next(path for cid, path, _ in candidates if cid == match["candidate_id"]))
         cell = tuple(match[key] for key in ("a", "b", "c", "alpha", "beta", "gamma"))
+        # Recent monty rejects pymatgen's default implicit mode "w"; "wt" works across versions.
         CifWriter(pm.structure_with_lattice(pm.load_structure(source), cell)).write_file(
-            args.output_dir / "selected_refined.cif")
+            args.output_dir / "selected_refined.cif", mode="wt")
         decision["refined_cif"] = "selected_refined.cif"
     (args.output_dir / "decision.json").write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")
     print(f"SG{decision['space_group']}: {decision['signal']} (top B={top['B']:.4f})")
@@ -61,7 +62,7 @@ def run(args: argparse.Namespace) -> dict:
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--experimental", type=Path, required=True,
-                        help="Two columns: degrees 2theta, linear intensity (measured, not background-corrected)")
+                        help="Two columns: degrees 2theta, linear intensity (raw measurement, not background-corrected)")
     parser.add_argument("--manifest", type=Path, required=True, help="representatives.csv of one space-group pool")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=1, help="Processes; results do not depend on this")

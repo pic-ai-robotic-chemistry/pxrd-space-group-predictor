@@ -13,7 +13,7 @@ are in [the CLI guide](cli.md).
 | SI-5 training and controls | `tools/train.py --stage` | Stage-specific defaults, explicit checkpoint initialization, optimizer reset, no test loader. |
 | SI-6 ordinary/balanced recall and macro-F1 | `src/evaluation/metrics.py`, `tools/evaluate.py` | Stable descending logits; summaries plus per-class, confusion and rank-coverage JSON. |
 | SI-6 five-seed paired criterion | `paired_seed_summary` | Same five seed IDs, unrounded recall fractions, sample standard deviation; mean gain >=0.02 and >=4 positive pairs. |
-| SI-8 PXRD peak matching | `src/runtime/pxrd_peak_match.py`: `load_experimental_pxrd`, `corrected_pattern`, `peak_levels`, `refine_cell`, `strong_guard`, `score_components` | Native measured grid; SNIP on log(1+√I); three-restart cell refinement; bidirectional strong-peak guard; B = exp(−(1.00M + 0.30D + 0.30H)). |
+| SI-8 PXRD peak matching | `src/runtime/pxrd_peak_match.py`: `load_experimental_pxrd`, `corrected_pattern`, `peak_levels`, `refine_cell`, `strong_guard`, `score_components` | Measured range on the 0.02° grid, minimum-subtracted, max 100; SNIP on log(1+√I); three-restart cell refinement; bidirectional strong-peak guard; B = exp(−(1.00M + 0.30D + 0.30H)). |
 | SI-8 per-group stopping rule | `evaluate_pool`, `tools/score_pxrd_candidates.py`, `execute_stages` in `src/runtime/workflow.py` | Top-B candidate only; match iff guard passes and B ≥ 0.80; stop at first matching group in search order, else `NO_MATCH_IN_SEARCH_LIST`. |
 | SI-2 fixed split and molecular exclusion | External data preparation | No random split substitutes for the fixed 512/266/1655 paper protocol. |
 | SI-7 generation and MACE relaxation | Downstream CLI adapters | `tools/generate_crystal_candidates.py` and `tools/relax_crystal_candidates.py` call the pinned external engine; models are not bundled. |
@@ -85,9 +85,10 @@ establish molecule-disjoint membership from metric values.
 
 ## Candidate scoring and external stages
 
-The matcher reads the measured two-column pattern on its native regular grid
-(`load_experimental_pxrd`); it is not interpolated onto the classifier grid and
-does not use classifier background subtraction. Candidate sticks use Cu Kα
+The matcher reads the measured two-column pattern (`load_experimental_pxrd`),
+clips it at zero, interpolates it onto the 0.02° grid within the measured range,
+subtracts its minimum and scales it to 100. It does not use the classifier's
+percentile background subtraction. Candidate sticks use Cu Kα
 1.54184 Å with pseudo-Voigt FWHM 0.15° and η 0.5. `corrected_pattern` applies
 Gaussian smoothing (σ 0.075°), SNIP (1.2°) on log(1+√I), a second smoothing
 (σ 0.03375°) and max-1 normalisation; `peak_levels` extracts major, medium and

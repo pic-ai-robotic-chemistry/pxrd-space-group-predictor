@@ -111,8 +111,9 @@ no PXRD arrays are exported.
 python tools/score_pxrd_candidates.py --experimental observed.xy --manifest runs/task/sg001-processed/representatives.csv --output-dir runs/task/sg001-matched --workers 8
 ```
 
-Supply the measured two-column pattern on its native regular 2θ grid, without
-the classification background filter. Candidate sticks are simulated for Cu Kα
+Supply the raw measured two-column pattern, without the classification
+background filter. It is clipped at zero, interpolated onto the 0.02° 2θ grid
+within its measured range, minimum-subtracted and scaled to a maximum of 100. Candidate sticks are simulated for Cu Kα
 (1.54184 Å), broadened by pseudo-Voigt (FWHM 0.15°, η 0.5) and processed with
 the experimental pattern by Gaussian smoothing (σ 0.075°), SNIP background
 removal (1.2°) on a log(1+√I) scale, a second smoothing (σ 0.03375°) and max-1
