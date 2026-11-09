@@ -145,7 +145,7 @@ class CliTests(unittest.TestCase):
             np.testing.assert_array_equal(prepared, preprocess_experimental(theta, intensity))
             # 0.02 degree grid restricted to the measured range, not the input spacing.
             self.assertAlmostEqual(measured[0, 0], 10.02)
-            self.assertAlmostEqual(measured[-1, 0], 50.0)
+            self.assertAlmostEqual(measured[-1, 0], 49.98)  # input ends at 49.995
             np.testing.assert_allclose(np.diff(measured[:, 0]), 0.02, atol=1e-9)
             expected = np.interp(measured[:, 0], theta, np.clip(intensity, 0, None))
             np.testing.assert_allclose(measured[:, 1], (expected - expected.min()) / (expected.max() - expected.min()) * 100)
