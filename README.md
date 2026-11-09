@@ -16,12 +16,12 @@ Experimental PXRD + molecular SMILES
                  ↓
   Low-energy window and deduplication
                  ↓
-   PXRD peak matching (top-B candidate)
+  PXRD peak matching (best candidate)
                  ↓
   Stop at first match, else next group
 ```
 
-Each space group is searched separately. Representatives within 3.0 kJ/mol of that group's minimum are scored against the measured pattern by lattice-refined peak matching; only the top-scoring candidate decides whether the search stops. A peak match supports further structure assessment; it does not establish structural identity. The peak-matching engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
+Each space group is searched on its own. Candidates within 3.0 kJ/mol of the group's lowest energy are deduplicated, their cells are refined against the measured peaks, and each gets a peak-match score B. The search stops only if the highest-scoring candidate passes the strong-peak check and reaches B ≥ 0.80. A match supports further structure assessment but does not prove structural identity. The peak-matching engine is ported from Zikai Xie's `pxrd_csp_stop` 1.0.0.
 
 ## What you can run
 
@@ -40,7 +40,7 @@ git clone https://github.com/qiaoqinyu/pxrd-space-group-predictor.git
 cd pxrd-space-group-predictor
 ```
 
-1. Follow the [Conda installation guide](environments/README.md). Prediction and ranking use one environment; candidate generation and MACE relaxation use a separate GPU engine.
+1. Follow the [Conda installation guide](environments/README.md). Prediction and peak matching use one environment; candidate generation and MACE relaxation use a separate GPU engine.
 2. Download and verify the [required model assets](docs/model-weights.md).
 3. Follow the [CLI examples](docs/cli.md) to check the environment and run prediction, a full workflow or peak matching of existing candidates.
 
@@ -66,7 +66,7 @@ Candidate generation and GPU relaxation require a separately specified compute b
 
 The [weights-v1 release](https://github.com/qiaoqinyu/pxrd-space-group-predictor/releases/tag/weights-v1) provides one classifier used in the paper. It is a single trained model, not an ensemble or the complete set of training runs. ChemBERTa and MACE are obtained separately from their upstream sources. See the [model guide](docs/model-weights.md) for downloads, verification and applicable terms.
 
-The repository does not distribute licensed CSD/PDF database records or restricted study datasets and historical calculation outputs. Users can supply their own inputs and export generated candidate CIFs. The public prediction and ranking workflow does not require a CSD license. Optional reference-based packing validation requires a separately licensed CCDC environment.
+The repository does not distribute licensed CSD/PDF database records or restricted study datasets and historical calculation outputs. Users can supply their own inputs and export generated candidate CIFs. The public prediction and peak-matching workflow does not require a CSD license. Optional reference-based packing validation requires a separately licensed CCDC environment.
 
 Formal software and classifier license terms, citation metadata and archival deposition remain pending. Public visibility does not grant an open-source license. Upstream model and engine licenses apply separately.
 
@@ -79,4 +79,4 @@ Formal software and classifier license terms, citation metadata and archival dep
 - [Training, array formats and direct adapters](docs/advanced-usage.md)
 - [Paper-to-code correspondence](docs/paper-code-map.md)
 
-Validation includes the 57-test suite and a one-candidate GPU workflow, with stage resume and output-hash checks. These checks establish software execution in the tested environments, not reproduction of the paper's full results. See the environment guide for the validation scope.
+Validation includes the 57-test suite and a peak-matching run over ten recorded space-group pools of one system; on one of those pools, scores matched the original `pxrd_csp_stop` package exactly. Candidate generation and MACE relaxation were last run end to end with version 0.2. These checks establish software execution, not reproduction of the paper's full results. See the environment guide for the validation scope.
