@@ -50,8 +50,9 @@ def run(args: argparse.Namespace) -> dict:
         from pymatgen.io.cif import CifWriter
         source = Path(next(path for cid, path, _ in candidates if cid == match["candidate_id"]))
         cell = tuple(match[key] for key in ("a", "b", "c", "alpha", "beta", "gamma"))
+        # Recent monty rejects pymatgen's default implicit mode "w"; "wt" works across versions.
         CifWriter(pm.structure_with_lattice(pm.load_structure(source), cell)).write_file(
-            args.output_dir / "selected_refined.cif")
+            args.output_dir / "selected_refined.cif", mode="wt")
         decision["refined_cif"] = "selected_refined.cif"
     (args.output_dir / "decision.json").write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")
     print(f"SG{decision['space_group']}: {decision['signal']} (top B={top['B']:.4f})")
