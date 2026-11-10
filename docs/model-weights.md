@@ -1,6 +1,6 @@
 # Public classifier weights
 
-The [weights-v1 Release](https://github.com/qiaoqinyu/pxrd-space-group-predictor/releases/tag/weights-v1)
+The [weights-v1 Release](https://github.com/pic-ai-robotic-chemistry/pxrd-space-group-predictor/releases/tag/weights-v1)
 provides the paper's full_pretrained classifier for seed 240427, retained at epoch
 53. It uses CSD pretraining followed by experimental adaptation. This is one
 trained model, not an ensemble or the complete set of five training runs.
@@ -12,7 +12,7 @@ Download the checkpoint into a new model directory:
 ```bash
 mkdir -p models
 curl --fail --location \
-  https://github.com/qiaoqinyu/pxrd-space-group-predictor/releases/download/weights-v1/full_pretrained_seed240427.pt \
+  https://github.com/pic-ai-robotic-chemistry/pxrd-space-group-predictor/releases/download/weights-v1/full_pretrained_seed240427.pt \
   --output models/full_pretrained_seed240427.pt
 export MODEL_SHA256=95e74dd41574a61839f0f1fc10f51075ba5f00de89b70b9f63bc214292369439
 python - <<'PY'
