@@ -36,7 +36,7 @@ Each space group is searched on its own. Candidates within 3.0 kJ/mol of the gro
 ## Quick start
 
 ```bash
-git clone https://github.com/qiaoqinyu/pxrd-space-group-predictor.git
+git clone https://github.com/pic-ai-robotic-chemistry/pxrd-space-group-predictor.git
 cd pxrd-space-group-predictor
 ```
 
@@ -64,7 +64,7 @@ Candidate generation and GPU relaxation require a separately specified compute b
 
 ## Models, data and licensing
 
-The [weights-v1 release](https://github.com/qiaoqinyu/pxrd-space-group-predictor/releases/tag/weights-v1) provides one classifier used in the paper. It is a single trained model, not an ensemble or the complete set of training runs. ChemBERTa and MACE are obtained separately from their upstream sources. See the [model guide](docs/model-weights.md) for downloads, verification and applicable terms.
+The [weights-v1 release](https://github.com/pic-ai-robotic-chemistry/pxrd-space-group-predictor/releases/tag/weights-v1) provides one classifier used in the paper. It is a single trained model, not an ensemble or the complete set of training runs. ChemBERTa and MACE are obtained separately from their upstream sources. See the [model guide](docs/model-weights.md) for downloads, verification and applicable terms.
 
 The repository does not distribute licensed CSD/PDF database records or restricted study datasets and historical calculation outputs. Users can supply their own inputs and export generated candidate CIFs. The public prediction and peak-matching workflow does not require a CSD license. Optional reference-based packing validation requires a separately licensed CCDC environment.
 
